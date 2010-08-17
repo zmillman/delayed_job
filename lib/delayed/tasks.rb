@@ -1,3 +1,5 @@
+require 'delayed/daemon_tasks'
+
 # Re-definitions are appended to existing tasks
 task :environment
 task :merb_env
