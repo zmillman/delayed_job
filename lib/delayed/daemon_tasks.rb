@@ -30,7 +30,11 @@ namespace :jobs do
           sleep delay if delay
           Rake::Task[:environment].invoke
           Delayed::Worker.logger = Logger.new logfile
-          Delayed::Worker.new(:quiet => true).start
+          Delayed::Worker.new({
+            :min_priority => ENV['MIN_PRIORITY'],
+            :max_priority => ENV['MAX_PRIORITY'],
+            :quiet => true
+          }).start
         end
       end
 
