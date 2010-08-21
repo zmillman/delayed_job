@@ -1,4 +1,4 @@
-require 'delayed/daemon_tasks'
+require File.join(File.dirname(__FILE__), 'daemon_tasks')
 
 # Re-definitions are appended to existing tasks
 task :environment
