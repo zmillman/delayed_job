@@ -42,7 +42,9 @@ namespace :jobs do
       master = fork do
         $0 = 'delayed_worker.master'
         rails_logger = lambda do |msg|
-          File.open(logfile, 'a') { |f| f.puts "#{Time.now}: [#{$0}] #{msg}" }
+          File.open(logfile, 'a') do |f|
+            f.puts "#{Time.now.strftime '%FT%T%z'}: [#{$0}] #{msg}"
+          end
         end
 
         # create pidfile or abort
