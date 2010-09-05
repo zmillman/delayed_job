@@ -62,7 +62,16 @@ module Delayed
 
       # Moved into its own method so that new_relic can trace it.
       def invoke_job
-        payload_object.perform
+        payload_object.before(self) if payload_object.respond_to?(:before)
+        begin
+          payload_object.perform
+          payload_object.success(self) if payload_object.respond_to?(:success)
+        rescue Exception => e
+          payload_object.failure(self, e) if payload_object.respond_to?(:failure)
+          raise e
+        ensure
+          payload_object.after(self) if payload_object.respond_to?(:after)
+        end
       end
       
       # Unlock this job (note: not saved to DB)

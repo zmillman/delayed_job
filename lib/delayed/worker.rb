@@ -2,6 +2,7 @@ require 'timeout'
 require 'active_support/core_ext/numeric/time'
 require 'active_support/core_ext/class/attribute_accessors'
 require 'active_support/core_ext/kernel'
+require 'logger'
 
 module Delayed
   class Worker
@@ -16,8 +17,8 @@ module Delayed
     cattr_accessor :destroy_failed_jobs
     self.destroy_failed_jobs = true
     
-    self.logger = if defined?(Merb::Logger)
-      Merb.logger
+    self.logger = if defined?(Rails)
+      Rails.logger
     elsif defined?(RAILS_DEFAULT_LOGGER)
       RAILS_DEFAULT_LOGGER
     end
@@ -37,14 +38,7 @@ module Delayed
     end
     
     def self.guess_backend
-      self.backend ||= if defined?(ActiveRecord)
-        :active_record
-      elsif defined?(MongoMapper)
-        :mongo_mapper
-      else
-        logger.warn "Could not decide on a backend, defaulting to active_record"
-        :active_record
-      end
+      self.backend = :active_record if defined?(ActiveRecord)
     end
 
     def initialize(options={})
