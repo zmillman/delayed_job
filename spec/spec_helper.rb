@@ -5,13 +5,11 @@ require 'bundler/setup'
 require 'spec'
 require 'logger'
 
-gem 'activerecord', ENV['RAILS_VERSION'] if ENV['RAILS_VERSION']
-
 require 'delayed_job'
 require 'delayed/backend/shared_spec'
 
 Delayed::Worker.logger = Logger.new('/tmp/dj.log')
-RAILS_ENV = 'test'
+ENV['RAILS_ENV'] = 'test'
 
 require 'active_record'
 
