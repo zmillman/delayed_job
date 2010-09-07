@@ -138,7 +138,7 @@ namespace :jobs do
     desc 'Restart an existing delayed_worker daemon'
     task(:restart) { kill_master :SIGHUP }
 
-    desc 'Stop and existing delayed_worker daemon'
+    desc 'Stop an existing delayed_worker daemon'
     task(:stop) { kill_master :SIGTERM }
   end
 end
