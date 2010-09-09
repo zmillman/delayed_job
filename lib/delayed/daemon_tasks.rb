@@ -1,3 +1,25 @@
+# The command
+#
+#     $ WORKERS=n RAILS_ENV=production rake jobs:daemon:start
+#
+# spawns a simple forking daemon, which spawns and restarts `n' instances of
+# Delayed::Worker. Worker processes are revived by the master process on receipt
+# of SIGCLD.
+#
+# We can restart worker processes by sending SIGHUP to the master process or by
+# killing them directly. Sending SIGTERM, SIGINT, or SIGQUIT to the master
+# instructs it to kill its children and terminate.
+#
+# Alternately, there are the tasks `jobs:daemon:restart' and `jobs:daemon:stop'
+#
+# Two extra features:
+#
+# * To avoid CPU thrashing, if a child worker dies 4 times in 60 seconds, a
+#   warning message is logged and the child sleeps for 300 seconds before
+#   booting up
+#
+# * The master polls tmp/restart.txt and restarts children on timestamp update
+
 ### Helpers
 
 def kill_master(signal)
@@ -18,16 +40,24 @@ namespace :jobs do
     task :start do
       # we want master and children to share a logfile, so set these before fork
       rails_env  = ENV['RAILS_ENV'] || 'development'
-      rails_root = Dir.pwd
+      rails_root = Dir.pwd  # rake sets cwd to the parent dir of the Rakefile
       logfile    = "#{rails_root}/log/delayed_worker.#{rails_env}.log"
+
+      # Ensure new file permissions are set to a standard 0755
+      File.umask 0022
 
       # Loads the Rails environment and spawns a worker
       worker = lambda do |id, delay|
         fork do
           $0 = "delayed_worker.#{id}"
-          # reset all inherited traps from main thread
+
+          # reset all inherited traps from main process
           [:CLD, :HUP, :TERM, :INT, :QUIT].each { |sig| trap sig, 'DEFAULT' }
+
+          # lay quiet for a while before booting up if specified
           sleep delay if delay
+
+          # Boot the rails environment and start a worker
           Rake::Task[:environment].invoke
           Delayed::Worker.logger = Logger.new logfile
           Delayed::Worker.new({
@@ -41,8 +71,11 @@ namespace :jobs do
       # fork a simple master process
       master = fork do
         $0 = 'delayed_worker.master'
+
+        # simple logger; there is some overhead due to reopening the file for
+        # every write, but it's minor, and avoids headaches with open files
         rails_logger = lambda do |msg|
-          File.open(logfile, 'a') do |f|
+          File.open logfile, 'a' do |f|
             f.puts "#{Time.now.strftime '%FT%T%z'}: [#{$0}] #{msg}"
           end
         end
@@ -70,6 +103,7 @@ namespace :jobs do
         # and respawn the failures
         trap :CLD do
           id = children.delete Process.wait
+
           # check to see if this worker is dying repeatedly
           times_dead[id] ||= []
           times_dead[id] << (now = Time.now)
@@ -84,6 +118,7 @@ namespace :jobs do
           else
             rails_logger.call "Restarting dead worker: delayed_worker.#{id}"
           end
+
           children[worker.call id, delay] = id
         end
 
@@ -97,24 +132,27 @@ namespace :jobs do
         [:TERM, :INT, :QUIT].each do |sig|
           trap sig do
             rails_logger.call "SIG#{sig} received! Shutting down workers."
+
             # reset trap handlers so we don't get caught in a trap loop
             [:CLD, sig].each { |s| trap s, 'DEFAULT' }
+
             # kill the children and reap them before terminating
             Process.kill :TERM, *children.keys
             Process.waitall
             rm_f pid_file
+
             # propagate the signal like a proper process should
             Process.kill sig, $$
           end
         end
 
         # NOTE: We want to block on something so that Process.waitall doesn't
-        #       reap children before the SIGCLD handler does.
+        #       reap dead children before the SIGCLD handler does
         #
         # poll passenger restart file and restart on update
         years_ago = lambda { |n| Time.now - 60 * 60 * 24 * 365 * n }
         mtime = lambda do |file|
-          File.exists?(file) ? File::Stat.new(file).mtime : years_ago.call(2)
+          File.exists?(file) ? File.mtime(file) : years_ago.call(2)
         end
         restart_file  = "#{rails_root}/tmp/restart.txt"
         last_modified = mtime.call restart_file
@@ -131,7 +169,8 @@ namespace :jobs do
         rm_f pid_file
       end
 
-      # detach the master process and exit
+      # detach the master process and exit;
+      # note that Process#detach calls setsid(2)
       Process.detach master
     end
 
