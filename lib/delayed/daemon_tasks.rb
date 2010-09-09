@@ -20,20 +20,6 @@
 #
 # * The master polls tmp/restart.txt and restarts children on timestamp update
 
-### Helpers
-
-def kill_master(signal)
-  pid_file = "#{Dir.pwd}/tmp/pids/delayed_worker.master.pid"
-  abort 'No pid file found!' unless File.exists? pid_file
-  pid = File.read(pid_file).to_i
-  puts "Sending #{signal} to #{pid}"
-  Process.kill signal, pid
-rescue Errno::ESRCH => e
-  abort e.to_s
-end
-
-### Tasks
-
 namespace :jobs do
   namespace :daemon do
     desc 'Spawn a daemon which forks WORKERS=n instances of Delayed::Worker'
@@ -174,10 +160,21 @@ namespace :jobs do
       Process.detach master
     end
 
-    desc 'Restart an existing delayed_worker daemon'
-    task(:restart) { kill_master :SIGHUP }
-
-    desc 'Stop an existing delayed_worker daemon'
-    task(:stop) { kill_master :SIGTERM }
+    [%w[restart SIGHUP], %w[stop SIGTERM]].each do |name, signal|
+      instance_eval do
+        desc "#{name.capitalize} an existing delayed_worker daemon"
+        task name do
+          begin
+            pid_file = "#{Dir.pwd}/tmp/pids/delayed_worker.master.pid"
+            abort 'No pid file found!' unless File.exists? pid_file
+            pid = File.read(pid_file).to_i
+            puts "Sending #{signal} to #{pid}"
+            Process.kill signal, pid
+          rescue Errno::ESRCH => e
+            abort e.to_s
+          end
+        end
+      end
+    end
   end
 end
