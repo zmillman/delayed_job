@@ -5,6 +5,8 @@ APP_ROOT = Pathname.new('..').expand_path(__FILE__)
 
 describe Delayed::Master do
   before do
+    ActiveRecord::Base.verify_active_connections!
+    Delayed::Job.before_fork
     @master = Delayed::Master.new
   end
 
@@ -27,19 +29,18 @@ describe Delayed::Master do
 
     context "with a stale pid file" do
       before do
-        pid = fork {}
-        Process.wait(pid)
-        @master.pid_file.open('w') {|f| f << pid }
+        @pid = fork {}
+        Process.wait(@pid)
+        @master.pid_file.open('w') {|f| f << @pid }
       end
 
       it "should overwrite pid file" do
-        pid = @master.pid_file.read
         @master.start
-        @master.pid_file.read.should != pid
+        @master.pid_file.read.to_i.should_not == @pid
       end
     end
 
-    it "should exit with status of 1" do
+    it "should exit with status of 1 if worker is running" do
       @master.start
       pid = @master.pid_file.read
       silence_stderr { Process.wait(fork { @master.start }) }
@@ -96,6 +97,20 @@ describe Delayed::Master do
 
     it "should use :root option" do
       Delayed::Master.new(:root => '/tmp').root.should == Pathname.new('/tmp')
+    end
+  end
+
+  describe "spawn_worker" do
+    it "should find and run a job" do
+      job = Delayed::Job.enqueue SimpleJob.new
+      Process.wait(@master.spawn_worker(0))
+      Delayed::Job.count.should == 0
+      Delayed::Job.exists?(job.id).should be_false
+    end
+
+    it "should not run if a job does not exist" do
+      @master.should_not_receive(:fork)
+      @master.spawn_worker(0)
     end
   end
 
