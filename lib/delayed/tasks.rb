@@ -1,5 +1,3 @@
-require File.join(File.dirname(__FILE__), 'daemon_tasks')
-
 namespace :jobs do
   desc "Clear the delayed_job queue."
   task :clear => :environment do
