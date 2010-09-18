@@ -19,6 +19,8 @@ module Delayed
       abort "Process is already running with pid #{pid}" if running?
       pid_file.delete if pid_file.file?
 
+      require 'config/environment'
+
       Delayed::Job.before_fork
 
       @pid = fork do
