@@ -35,7 +35,7 @@ describe Delayed::Master do
       end
 
       it "should overwrite pid file" do
-        @master.start
+        silence_stderr { @master.start }
         @master.pid_file.read.to_i.should_not == @pid
       end
     end
@@ -68,6 +68,10 @@ describe Delayed::Master do
         silence_stderr { Process.wait(fork { @master.stop }) }
       end
 
+      after do
+        @master.pid_file.delete
+      end
+
       it "should abort" do
         $?.exitstatus.should == 1
       end
@@ -84,6 +88,7 @@ describe Delayed::Master do
         @master.stop
         @master.should_not be_running
         wait_until { @master.pid_file.should_not be_file }
+        @master.pid.should_not be_nil # don't forget pid
       end
     end
   end

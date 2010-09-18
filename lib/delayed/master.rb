@@ -13,11 +13,11 @@ module Delayed
         GC.copy_on_write_friendly = true
       end
 
-      # # Ensure new file permissions are set to a standard 0755
-      # File.umask 0022
-
       abort "Process is already running with pid #{pid}" if running?
-      pid_file.delete if pid_file.file?
+      if pid_file.file?
+        warn "Deleting stale pid file at #{pid_file}"
+        pid_file.delete
+      end
 
       require 'config/environment'
 
@@ -30,17 +30,20 @@ module Delayed
           trap sig do
             # logger.info "SIG#{sig} received! Shutting down workers."
 
-            # reset trap handlers so we don't get caught in a trap loop
-            trap sig, 'DEFAULT'
-
             # # kill the children and reap them before terminating
             # Process.kill :TERM, *children.keys
             # Process.waitall
 
             pid_file.delete if pid_file.file?
 
+            # reset trap handlers so we don't get caught in a trap loop
+            trap sig, 'DEFAULT'
+
             # propagate the signal like a proper process should
             Process.kill sig, $$
+
+            # FIXME: I don't understand why, but process will not stop without following
+            Process.wait
           end
         end
 
@@ -129,7 +132,7 @@ module Delayed
     end
 
     def pid
-      @pid ||= pid_file.read.to_i if pid_file.file?
+      @pid ||= (pid_file.read.to_i if pid_file.file?)
     end
 
     def running?
