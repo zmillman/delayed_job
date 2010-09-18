@@ -11,14 +11,12 @@ require 'action_mailer'
 require 'delayed_job'
 require 'delayed/backend/shared_spec'
 
-Delayed::Worker.logger = Logger.new('/tmp/dj.log')
 ENV['RAILS_ENV'] = 'test'
 require 'rails'
 
 config = YAML.load(File.read('spec/database.yml'))
 ActiveRecord::Base.configurations = {'test' => config['mysql']}
 ActiveRecord::Base.establish_connection
-ActiveRecord::Base.logger = Delayed::Worker.logger
 ActiveRecord::Migration.verbose = false
 
 ActiveRecord::Schema.define do

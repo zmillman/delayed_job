@@ -28,7 +28,7 @@ module Delayed
 
         [:TERM, :INT, :QUIT].each do |sig|
           trap sig do
-            # logger.info "SIG#{sig} received! Shutting down workers."
+            logger.info "SIG#{sig} received. Shutting down."
 
             # # kill the children and reap them before terminating
             # Process.kill :TERM, *children.keys
@@ -50,6 +50,8 @@ module Delayed
         # Write pid file
         pid_file.dirname.mkpath
         pid_file.open('w') { |f| f.write $$ }
+
+        logger.info "Starting with #{worker_count} workers"
 
         # # silence output like a proper daemon
         # [$stdin, $stdout, $stderr].each { |io| io.reopen '/dev/null' }
@@ -88,6 +90,7 @@ module Delayed
     end
 
     def spawn_worker(id)
+      logger.debug "Spawning worker #{id}"
       worker = Worker.new(id)
       job = Delayed::Job.reserve(worker.name)
       if job
@@ -139,6 +142,12 @@ module Delayed
       !!(pid && Process.getpgid(pid))
     rescue Errno::ESRCH
       false
+    end
+
+    def logger
+      @logger ||= Logger.new(options[:log] || 'log/delayed_job.log').tap do |logger|
+        logger.formatter = Delayed::LoggerFormatter.new("Master(#{pid})")
+      end
     end
   end
 end

@@ -6,7 +6,7 @@ require 'logger'
 
 module Delayed
   class Worker
-    cattr_accessor :min_priority, :max_priority, :max_attempts, :max_run_time, :default_priority, :sleep_delay, :logger
+    cattr_accessor :min_priority, :max_priority, :max_attempts, :max_run_time, :default_priority, :sleep_delay
     self.sleep_delay = 5
     self.max_attempts = 25
     self.max_run_time = 4.hours
@@ -17,16 +17,15 @@ module Delayed
     cattr_accessor :destroy_failed_jobs
     self.destroy_failed_jobs = true
 
-    self.logger = if defined?(Rails)
-      Rails.logger
-    elsif defined?(RAILS_DEFAULT_LOGGER)
-      RAILS_DEFAULT_LOGGER
+    def self.logger=(*)
+      warn "[DEPRECATED] Delayed::Worker.logger= no longer exists. Use the :log option with #initialize"
     end
 
     # name_prefix is ignored if name is set directly
     attr_accessor :name_prefix
 
     cattr_reader :backend
+    attr_reader :worker_id, :options
 
     def self.backend=(backend)
       if backend.is_a? Symbol
@@ -42,7 +41,7 @@ module Delayed
     end
 
     def initialize(worker_id, options={})
-      @quiet = options.has_key?(:quiet) ? options[:quiet] : true
+      @options = options
       self.class.min_priority = options[:min_priority] if options.has_key?(:min_priority)
       self.class.max_priority = options[:max_priority] if options.has_key?(:max_priority)
     end
@@ -67,7 +66,7 @@ module Delayed
         Timeout.timeout(self.class.max_run_time.to_i) { job.invoke_job }
         job.destroy
       end
-      say "#{job.name} completed after %.4f" % runtime
+      logger.info "#{job.name} completed after %.4f" % runtime
       return true  # did work
     rescue Exception => e
       handle_failed_job(job, e)
@@ -83,7 +82,7 @@ module Delayed
         job.unlock
         job.save!
       else
-        say "PERMANENTLY removing #{job.name} because of #{job.attempts} consecutive failures.", Logger::INFO
+        logger.info "PERMANENTLY removing #{job.name} because of #{job.attempts} consecutive failures."
         if job.respond_to?(:on_permanent_failure)
           warn "[DEPRECATION] The #on_permanent_failure hook has been renamed to #failure."
         end
@@ -92,16 +91,19 @@ module Delayed
       end
     end
 
-    def say(text, level = Logger::INFO)
-      text = "[Worker(#{name})] #{text}"
-      puts text unless @quiet
-      logger.add level, "#{Time.now.strftime('%FT%T%z')}: #{text}" if logger
-    end
-
     def handle_failed_job(job, error)
       job.last_error = error.message + "\n" + error.backtrace.join("\n")
-      say "#{job.name} failed with #{error.class.name}: #{error.message} - #{job.attempts} failed attempts", Logger::ERROR
+      logger.error "#{job.name} failed with #{error.class.name}: #{error.message} - #{job.attempts} failed attempts"
       reschedule(job)
     end
+
+  private
+
+    def logger
+      @logger ||= Logger.new(options[:log] || 'log/delayed_job.log').tap do |logger|
+        logger.formatter = Delayed::LoggerFormatter.new("Worker(#{name})")
+      end
+    end
+
   end
 end

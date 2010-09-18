@@ -11,6 +11,7 @@ require File.dirname(__FILE__) + '/delayed/railtie' if defined?(Rails::Railtie)
 module Delayed
   autoload :Command,            'delayed/command'
   autoload :Master,             'delayed/master'
+  autoload :LoggerFormatter,    'delayed/logger_formatter'
 end
 
 Object.send(:include, Delayed::MessageSending)

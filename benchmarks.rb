@@ -2,8 +2,6 @@ require 'spec/spec_helper'
 require 'logger'
 require 'benchmark'
 
-# Delayed::Worker.logger = Logger.new('/dev/null')
-
 Benchmark.bm(10) do |x|
   Delayed::Job.delete_all
   n = 10000
