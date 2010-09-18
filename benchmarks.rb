@@ -9,5 +9,13 @@ Benchmark.bm(10) do |x|
   n = 10000
   n.times { "foo".delay.length }
 
-  x.report { Delayed::Worker.new(:quiet => true).work_off(n) }
+  master = Delayed::Master.new(:workers => 20)
+  master.stop if master.running?
+
+  x.report do
+    master.start
+    sleep 1 until Delayed::Job.count == 0
+  end
+
+  master.stop
 end
