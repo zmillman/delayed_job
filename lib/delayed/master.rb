@@ -9,106 +9,112 @@ module Delayed
     end
 
     def start
-      if GC.respond_to?(:copy_on_write_friendly=)
-        GC.copy_on_write_friendly = true
-      end
-
       abort "Process is already running with pid #{pid}" if running?
       if pid_file.file?
-        warn "Deleting stale pid file at #{pid_file}"
+        logger.info "Deleting stale pid file at #{pid_file}"
         pid_file.delete
       end
+
+      GC.copy_on_write_friendly = true if GC.respond_to?(:copy_on_write_friendly=)
 
       require 'config/environment'
 
       Delayed::Job.before_fork
 
-      @pid = fork do
-        $0 = 'delayed_job'
-
-        [:TERM, :INT, :QUIT].each do |sig|
-          trap sig do
-            logger.info "SIG#{sig} received. Shutting down."
-
-            # # kill the children and reap them before terminating
-            # Process.kill :TERM, *children.keys
-            # Process.waitall
-
-            pid_file.delete if pid_file.file?
-
-            # reset trap handlers so we don't get caught in a trap loop
-            trap sig, 'DEFAULT'
-
-            # propagate the signal like a proper process should
-            Process.kill sig, $$
-
-            # FIXME: I don't understand why, but process will not stop without following
-            Process.wait
-          end
-        end
-
-        # Write pid file
-        pid_file.dirname.mkpath
-        pid_file.open('w') { |f| f.write $$ }
-
-        logger.info "Starting with #{worker_count} workers"
-
-        # # silence output like a proper daemon
-        # [$stdin, $stdout, $stderr].each { |io| io.reopen '/dev/null' }
-
-        Delayed::Job.after_fork
-
-        run
-      end
+      @pid = fork { run }
 
       # Wait for process to finish starting
       sleep 0.1 until running? && pid_file.file?
 
-      # # detach the master process and exit;
-      # # note that Process#detach calls setsid(2)
-      # Process.detach pid
-      pid
+      # detach the master process and exit;
+      # note that Process#detach calls setsid(2)
+      Process.detach @pid
+      @pid
     end
 
     def run
+      $0 = 'delayed_job'
+
+      [:TERM, :INT, :QUIT].each do |sig|
+        trap sig do
+          logger.info "SIG#{sig} received. Shutting down."
+
+          # reset trap handlers so we don't get caught in a trap loop
+          trap :CLD, 'DEFAULT'
+          trap sig, 'DEFAULT'
+
+          # kill the children and reap them before terminating
+          unless children.keys.empty?
+            logger.debug "Terminating workers: #{children.inspect}"
+            Process.kill :TERM, *children.keys
+          end
+          Process.waitall
+          logger.info "Terminated workers"
+
+          pid_file.delete if pid_file.file?
+
+          # propagate the signal like a proper process should
+          Process.kill sig, $$
+          Process.waitall
+        end
+      end
+
+      # # silence output like a proper daemon
+      [STDIN, STDOUT, STDERR].each { |io| io.reopen '/dev/null' }
+
+      Delayed::Job.after_fork
+
       # Spawn a new worker when one dies
       trap :CLD do
-        id = children.delete Process.wait
-        spawn_worker(id)
+        handle_child_death
       end
+
+      # Write pid file
+      pid_file.dirname.mkpath
+      pid_file.open('w') { |f| f.write $$ }
+
+      logger.info "Starting with #{worker_count} workers"
 
       # Create the worker ids
       worker_count.times {|id| available_workers << id }
 
       loop do
-        available_workers.each do |id|
-          if !spawn_worker(id)
-            sleep 5
-          end
+        logger.debug "available_workers: #{available_workers.inspect}"
+        logger.debug "busy workers: #{children.values.inspect}"
+        while id = available_workers.shift
+          sleep 5 if !spawn_worker(id)
         end
+        logger.debug "No workers available, waiting for child death"
+        handle_child_death
       end
     end
 
+    def handle_child_death
+      id = children.delete(Process.wait)
+      # available_workers << children.delete(Process.wait)
+      logger.debug "Worker #{id} reaped. status:#{$?.exitstatus}"
+      spawn_worker id
+    end
+
     def spawn_worker(id)
-      logger.debug "Spawning worker #{id}"
       worker = Worker.new(id)
       job = Delayed::Job.reserve(worker.name)
       if job
-        available_workers.delete(id)
-
+        logger.debug "Reserved job #{job.id} for worker #{id}"
         Delayed::Job.before_fork
         pid = fork do
           # $0 = "delayed_worker.#{id}"
-          #
-          # # reset all inherited traps from main process
-          # [:CLD, :HUP, :TERM, :INT, :QUIT].each { |sig| trap sig, 'DEFAULT' }
+
+          # reset all inherited traps from main process
+          [:CLD, :HUP, :TERM, :INT, :QUIT].each { |sig| trap sig, 'DEFAULT' }
           Delayed::Job.after_fork
           worker.run(job)
         end
-
         children[pid] = id
+        logger.debug "Forked worker #{id}. pid:#{pid}"
         pid
       else
+        logger.debug "No jobs available for worker #{id}"
         available_workers << id
         false
       end

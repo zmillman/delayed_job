@@ -27,6 +27,13 @@ describe Delayed::Master do
       @master.pid_file.dirname.directory?.should be_true
     end
 
+    it "should detach process" do
+      @master.start
+      pid = @master.pid
+      Process.kill :TERM, pid
+      wait_until {`ps -ho pid,state -p #{pid}`.should_not include(pid.to_s) }
+    end
+
     context "with a stale pid file" do
       before do
         @pid = fork {}
@@ -106,6 +113,10 @@ describe Delayed::Master do
   end
 
   describe "spawn_worker" do
+    before do
+      Delayed::Job.delete_all
+    end
+
     it "should find and run a job" do
       job = Delayed::Job.enqueue SimpleJob.new
       Process.wait(@master.spawn_worker(0))
@@ -115,7 +126,7 @@ describe Delayed::Master do
 
     it "should not run if a job does not exist" do
       @master.should_not_receive(:fork)
-      @master.spawn_worker(0)
+      @master.spawn_worker(0).should be_false
     end
   end
 

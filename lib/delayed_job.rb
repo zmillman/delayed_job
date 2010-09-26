@@ -7,11 +7,11 @@ require File.dirname(__FILE__) + '/delayed/yaml_ext'
 require File.dirname(__FILE__) + '/delayed/backend/base'
 require File.dirname(__FILE__) + '/delayed/worker'
 require File.dirname(__FILE__) + '/delayed/railtie' if defined?(Rails::Railtie)
+require 'delayed/logger_formatter'
 
 module Delayed
   autoload :Command,            'delayed/command'
   autoload :Master,             'delayed/master'
-  autoload :LoggerFormatter,    'delayed/logger_formatter'
 end
 
 Object.send(:include, Delayed::MessageSending)
