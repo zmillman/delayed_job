@@ -3,8 +3,28 @@ require File.expand_path('../../../../spec/sample_jobs', __FILE__)
 shared_examples_for 'a delayed_job backend' do
   let(:worker) { Delayed::Worker.new }
 
+  def described_class
+    @described_class ||= Recorder.new(super)
+  end
+
   def create_job(opts = {})
     described_class.create(opts.merge(:payload_object => SimpleJob.new))
+
+  class Recorder < ActiveSupport::BasicObject
+    cattr_accessor :instances
+    self.instances = []
+    attr_reader :called_methods
+
+    def initialize(target)
+      @target = target
+      @called_methods = []
+      self.instances << self
+    end
+
+    def method_missing(method, *args)
+      @called_methods << method
+      @target.send(method, *args)
+    end
   end
 
   before do
@@ -13,6 +33,17 @@ shared_examples_for 'a delayed_job backend' do
     Delayed::Worker.default_priority = 99
     SimpleJob.runs = 0
     described_class.delete_all
+  end
+
+  BACKEND_CLASS_METHODS = [:reserve, :enqueue, :create, :delete_all, :db_time_now, :clear_locks!]
+
+  after do
+    Recorder.instances.each do |recorder|
+      recorder.called_methods.each do |method|
+        BACKEND_CLASS_METHODS.should include(method)
+      end
+    end
+    Recorder.instances.clear
   end
 
   it "should set run_at automatically if not set" do
