@@ -8,7 +8,8 @@ shared_examples_for 'a delayed_job backend' do
   end
 
   def create_job(opts = {})
-    described_class.create(opts.merge(:payload_object => SimpleJob.new))
+    described_class.create({:payload_object => SimpleJob.new}.merge(opts))
+  end
 
   class Recorder < ActiveSupport::BasicObject
     cattr_accessor :instances
@@ -84,14 +85,14 @@ shared_examples_for 'a delayed_job backend' do
         lambda { described_class.enqueue(Object.new) }.should raise_error(ArgumentError)
       end
 
-      it "should increase count after enqueuing items" do
-        described_class.enqueue SimpleJob.new
-        described_class.count.should == 1
+      it "should enqueue job for objects that respond to :perform" do
+        job = described_class.enqueue SimpleJob.new
+        described_class.reserve(worker).should == job
       end
 
       it "should be able to set priority" do
-        @job = described_class.enqueue SimpleJob.new, 5
-        @job.priority.should == 5
+        job = described_class.enqueue SimpleJob.new, 5
+        job.priority.should == 5
       end
 
       it "should use default priority when it is not set" do
@@ -151,17 +152,18 @@ shared_examples_for 'a delayed_job backend' do
 
   describe "payload_object" do
     it "should raise a DeserializationError when the job class is totally unknown" do
-      job = described_class.new :handler => "--- !ruby/object:JobThatDoesNotExist {}"
+      job = described_class.create :handler => "--- !ruby/object:JobThatDoesNotExist {}"
       lambda { job.payload_object }.should raise_error(Delayed::DeserializationError)
     end
 
     it "should raise a DeserializationError when the job struct is totally unknown" do
-      job = described_class.new :handler => "--- !ruby/struct:StructThatDoesNotExist {}"
+      job = described_class.create :handler => "--- !ruby/struct:StructThatDoesNotExist {}"
       lambda { job.payload_object }.should raise_error(Delayed::DeserializationError)
     end
 
     it "should raise a DeserializationError when the YAML.load raises argument error" do
-      job = described_class.find(create_job.id)
+      create_job
+      job = described_class.reserve(worker)
       YAML.should_receive(:load).and_raise(ArgumentError)
       lambda { job.payload_object }.should raise_error(Delayed::DeserializationError)
     end
@@ -208,11 +210,11 @@ shared_examples_for 'a delayed_job backend' do
 
   context "#name" do
     it "should be the class name of the job that was enqueued" do
-      described_class.create(:payload_object => ErrorJob.new ).name.should == 'ErrorJob'
+      create_job(:payload_object => ErrorJob.new ).name.should == 'ErrorJob'
     end
 
     it "should be the method that will be called if its a performable method object" do
-      job = described_class.new(:payload_object => NamedJob.new)
+      job = create_job(:payload_object => NamedJob.new)
       job.name.should == 'named_job'
     end
 
@@ -224,7 +226,7 @@ shared_examples_for 'a delayed_job backend' do
     it "should parse from handler on deserialization error" do
       job = Story.create(:text => "...").delay.text
       job.payload_object.object.destroy
-      job = described_class.find(job.id)
+      job = described_class.reserve(worker)
       job.name.should == 'Delayed::PerformableMethod'
     end
   end
@@ -304,7 +306,7 @@ shared_examples_for 'a delayed_job backend' do
       story = Story.create(:text => 'hello')
       job = story.delay.tell
       story.update_attributes :text => 'goodbye'
-      described_class.find(job.id).payload_object.object.text.should == 'goodbye'
+      described_class.reserve(worker).payload_object.object.text.should == 'goodbye'
     end
 
     it "should raise deserialization error for destroyed records" do
@@ -312,7 +314,7 @@ shared_examples_for 'a delayed_job backend' do
       job = story.delay.tell
       story.destroy
       lambda {
-        described_class.find(job.id).payload_object
+        described_class.reserve(worker).payload_object
       }.should raise_error(Delayed::DeserializationError)
     end
   end
@@ -340,7 +342,7 @@ shared_examples_for 'a delayed_job backend' do
       context "when the job raises a deserialization error" do
         it "should mark the job as failed" do
           Delayed::Worker.destroy_failed_jobs = false
-          job = described_class.create! :handler => "--- !ruby/object:JobThatDoesNotExist {}"
+          job = create_job :handler => "--- !ruby/object:JobThatDoesNotExist {}"
           worker.work_off
           job.reload
           job.failed_at.should_not be_nil
