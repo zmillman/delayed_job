@@ -90,24 +90,9 @@ shared_examples_for 'a delayed_job backend' do
         described_class.reserve(worker).should == job
       end
 
-      it "should be able to set priority [DEPRECATED]" do
-        silence_warnings do
-          job = described_class.enqueue SimpleJob.new, 5
-          job.priority.should == 5
-        end
-      end
-
       it "should use default priority when it is not set" do
         @job = described_class.enqueue SimpleJob.new
         @job.priority.should == 99
-      end
-
-      it "should be able to set run_at [DEPRECATED]" do
-        silence_warnings do
-          later = described_class.db_time_now + 5.minutes
-          @job = described_class.enqueue SimpleJob.new, 5, later
-          @job.run_at.should be_within(1).of(later)
-        end
       end
 
       it "should work with jobs in modules" do
