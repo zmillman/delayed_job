@@ -6,11 +6,10 @@ require 'logger'
 
 module Delayed
   class Worker
-    cattr_accessor :min_priority, :max_priority, :max_attempts, :max_run_time, :default_priority, :sleep_delay, :logger
+    cattr_accessor :max_attempts, :max_run_time, :sleep_delay, :logger
     self.sleep_delay = 5
     self.max_attempts = 25
     self.max_run_time = 4.hours
-    self.default_priority = 0
 
     # By default failed jobs are destroyed after too many attempts. If you want to keep them around
     # (perhaps to inspect the reason for the failure), set this to false.
@@ -24,7 +23,7 @@ module Delayed
     end
 
     # name_prefix is ignored if name is set directly
-    attr_accessor :name_prefix
+    attr_accessor :name_prefix, :queues
 
     cattr_reader :backend
 
@@ -44,8 +43,7 @@ module Delayed
 
     def initialize(options={})
       @quiet = options.has_key?(:quiet) ? options[:quiet] : true
-      self.class.min_priority = options[:min_priority] if options.has_key?(:min_priority)
-      self.class.max_priority = options[:max_priority] if options.has_key?(:max_priority)
+      self.queues = options[:queues]
       self.class.sleep_delay = options[:sleep_delay] if options.has_key?(:sleep_delay)
     end
 

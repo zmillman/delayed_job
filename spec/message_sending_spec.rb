@@ -1,64 +1,52 @@
 require 'spec_helper'
 
 describe Delayed::MessageSending do
+  class Delayable
+    cattr_accessor :type
+
+    def omg!(arg)
+    end
+    handle_asynchronously :omg!, :queue => 'srsly'
+
+    def proc
+    end
+    handle_asynchronously :proc, :queue => Proc.new { self.type }
+
+    def proc_with_arg
+    end
+    handle_asynchronously :proc_with_arg, :queue => Proc.new {|m| m.type }
+  end
+
   describe "handle_asynchronously" do
-    class Story < ActiveRecord::Base
-      def tell!(arg)
-      end
-      handle_asynchronously :tell!
-    end
-
     it "should alias original method" do
-      Story.new.should respond_to(:tell_without_delay!)
-      Story.new.should respond_to(:tell_with_delay!)
+      Delayable.new.should respond_to(:omg_without_delay!)
+      Delayable.new.should respond_to(:omg_with_delay!)
     end
 
-    it "should create a PerformableMethod" do
-      story = Story.create!
-      lambda {
-        job = story.tell!(1)
-        job.payload_object.class.should   == Delayed::PerformableMethod
-        job.payload_object.method_name.should  == :tell_without_delay!
-        job.payload_object.args.should    == [1]
-      }.should change { Delayed::Job.count }
+    it "should create a job" do
+      job = Delayable.new.omg!(1)
+      job.payload_object.class.should == Delayed::PerformableMethod
+      job.payload_object.method_name.should == :omg_without_delay!
+      job.payload_object.args.should == [1]
     end
 
-    describe 'with options' do
-      class Fable
-        class << self
-          attr_accessor :importance
-        end
-        def tell
-        end
-        handle_asynchronously :tell, :priority => Proc.new { self.importance }
-      end
+    it "should set options" do
+      job = Delayable.new.omg!(1)
+      job.queue.should == 'srsly'
+    end
 
-      it 'should set the priority based on the Fable importance' do
-        Fable.importance = 10
-        job = Fable.new.tell
-        job.priority.should == 10
+    it "should set the options based on result of proc" do
+      d = Delayable.new
+      d.type = 'with_a_proc'
+      job = d.proc
+      job.queue.should == 'with_a_proc'
+    end
 
-        Fable.importance = 20
-        job = Fable.new.tell
-        job.priority.should == 20
-      end
-
-      describe 'using a proc with parament' do
-        class Yarn
-          attr_accessor :importance
-          def spin
-          end
-          handle_asynchronously :spin, :priority => Proc.new {|y| y.importance }
-        end
-
-        it 'should set the priority based on the Fable importance' do
-          job = Yarn.new.tap {|y| y.importance = 10 }.spin
-          job.priority.should == 10
-
-          job = Yarn.new.tap {|y| y.importance = 20 }.spin
-          job.priority.should == 20
-        end
-      end
+    it "should set the options based on result of proc with arg" do
+      d = Delayable.new
+      d.type = 'arg'
+      job = d.proc_with_arg
+      job.queue.should == 'arg'
     end
   end
 
@@ -72,18 +60,11 @@ describe Delayed::MessageSending do
       }.should change { Delayed::Job.count }.by(1)
     end
 
-    it "should set default priority" do
-      Delayed::Worker.default_priority = 99
-      job = Object.delay.to_s
-      job.priority.should == 99
-      Delayed::Worker.default_priority = 0
-    end
-
     it "should set job options" do
       run_at = Time.parse('2010-05-03 12:55 AM')
-      job = Object.delay(:priority => 20, :run_at => run_at).to_s
+      job = Object.delay(:queue => 'foo', :run_at => run_at).to_s
       job.run_at.should == run_at
-      job.priority.should == 20
+      job.queue.should == 'foo'
     end
   end
 end

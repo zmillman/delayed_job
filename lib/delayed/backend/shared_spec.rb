@@ -29,9 +29,6 @@ shared_examples_for 'a delayed_job backend' do
   end
 
   before do
-    Delayed::Worker.max_priority = nil
-    Delayed::Worker.min_priority = nil
-    Delayed::Worker.default_priority = 99
     SimpleJob.runs = 0
     described_class.delete_all
   end
@@ -39,12 +36,13 @@ shared_examples_for 'a delayed_job backend' do
   BACKEND_CLASS_METHODS = [:reserve, :enqueue, :create, :delete_all, :db_time_now, :clear_locks!]
 
   after do
-    Recorder.instances.each do |recorder|
+    instances = Recorder.instances.dup
+    Recorder.instances.clear
+    instances.each do |recorder|
       recorder.called_methods.each do |method|
         BACKEND_CLASS_METHODS.should include(method)
       end
     end
-    Recorder.instances.clear
   end
 
   it "should set run_at automatically if not set" do
@@ -63,14 +61,14 @@ shared_examples_for 'a delayed_job backend' do
         lambda { described_class.enqueue(:payload_object => Object.new) }.should raise_error(ArgumentError)
       end
 
-      it "should be able to set priority" do
-        job = described_class.enqueue :payload_object => SimpleJob.new, :priority => 5
-        job.priority.should == 5
+      it "should be able to set a queue" do
+        job = described_class.enqueue :payload_object => SimpleJob.new, :queue => 'emails'
+        job.queue.should == 'emails'
       end
 
-      it "should use default priority" do
+      it "should set default queue to nil" do
         job = described_class.enqueue :payload_object => SimpleJob.new
-        job.priority.should == 99
+        job.queue.should be_nil
       end
 
       it "should be able to set run_at" do
@@ -88,11 +86,6 @@ shared_examples_for 'a delayed_job backend' do
       it "should enqueue job for objects that respond to :perform" do
         job = described_class.enqueue SimpleJob.new
         described_class.reserve(worker).should == job
-      end
-
-      it "should use default priority when it is not set" do
-        @job = described_class.enqueue SimpleJob.new
-        @job.priority.should == 99
       end
 
       it "should work with jobs in modules" do
@@ -195,6 +188,69 @@ shared_examples_for 'a delayed_job backend' do
       job = create_job(:locked_by => worker.name, :locked_at => (described_class.db_time_now - 1.minutes))
       described_class.reserve(worker).should == job
     end
+
+    context "with specific queues specified" do
+      before(:each) do
+        worker.queues = ['queue2', 'queue1']
+      end
+
+      it "should fetch jobs from first queue" do
+        create_job :queue => 'queue1'
+        job = create_job :queue => 'queue2'
+        described_class.reserve(worker).should == job
+      end
+
+      it "should fetch jobs from other queues" do
+        job = create_job :queue => 'queue1'
+        described_class.reserve(worker).should == job
+      end
+
+      it "should not fetch jobs from queues not listed" do
+        create_job :queue => 'queue3'
+        described_class.reserve(worker).should be_nil
+      end
+    end
+
+    context "with queues and * specified" do
+      before(:each) do
+        worker.queues = ['queue1', '*']
+      end
+
+      it "should fetch jobs from first queue" do
+        create_job(:run_at => 10.seconds.ago)
+        job = create_job :queue => 'queue1', :run_at => 1.second.ago
+        described_class.reserve(worker).should == job
+      end
+
+      it "should fetch jobs not in a queue" do
+        job = create_job :queue => nil
+        described_class.reserve(worker).should == job
+      end
+    end
+
+    context "without queues specified" do
+      before(:each) do
+        worker.queues = nil
+      end
+
+      it "should fetch first scheduled job" do
+        now = described_class.db_time_now
+        create_job :run_at => now - 10, :queue => 'queue1'
+        job = create_job :run_at => now - 20, :queue => 'queue2'
+        create_job :run_at => now
+        described_class.reserve(worker).should == job
+      end
+
+      it "should fetch jobs in a queue" do
+        job = create_job :queue => 'queue1'
+        described_class.reserve(worker).should == job
+      end
+
+      it "should fetch jobs not in a queue" do
+        job = create_job :queue => nil
+        described_class.reserve(worker).should == job
+      end
+    end
   end
 
   context "#name" do
@@ -217,37 +273,6 @@ shared_examples_for 'a delayed_job backend' do
       job.payload_object.object.destroy
       job = described_class.reserve(worker)
       job.name.should == 'Delayed::PerformableMethod'
-    end
-  end
-
-  context "worker prioritization" do
-    before(:each) do
-      Delayed::Worker.max_priority = nil
-      Delayed::Worker.min_priority = nil
-    end
-
-    it "should fetch jobs ordered by priority" do
-      10.times { described_class.enqueue SimpleJob.new, :priority => rand(10) }
-      jobs = []
-      10.times { jobs << described_class.reserve(worker) }
-      jobs.size.should == 10
-      jobs.each_cons(2) do |a, b|
-        a.priority.should <= b.priority
-      end
-    end
-
-    it "should only find jobs greater than or equal to min priority" do
-      min = 5
-      Delayed::Worker.min_priority = min
-      10.times {|i| described_class.enqueue SimpleJob.new, :priority => i }
-      5.times { described_class.reserve(worker).priority.should >= min }
-    end
-
-    it "should only find jobs less than or equal to max priority" do
-      max = 5
-      Delayed::Worker.max_priority = max
-      10.times {|i| described_class.enqueue SimpleJob.new, :priority => i }
-      5.times { described_class.reserve(worker).priority.should <= max }
     end
   end
 

@@ -23,7 +23,7 @@ ActiveRecord::Migration.verbose = false
 
 ActiveRecord::Schema.define do
   create_table :delayed_jobs, :force => true do |table|
-    table.integer  :priority, :default => 0
+    table.string   :queue
     table.integer  :attempts, :default => 0
     table.text     :handler
     table.text     :last_error
@@ -34,7 +34,7 @@ ActiveRecord::Schema.define do
     table.timestamps
   end
 
-  add_index :delayed_jobs, [:priority, :run_at], :name => 'delayed_jobs_priority'
+  add_index :delayed_jobs, [:queue, :run_at], :name => 'delayed_jobs_queue'
 
   create_table :stories, :force => true do |table|
     table.string :text

@@ -68,7 +68,7 @@ class LongTasks
   def send_mailer
     # Some other code
   end
-  handle_asynchronously :send_mailer, :priority => 20
+  handle_asynchronously :send_mailer, :queue => 'mailers'
 
   def in_the_future
     # Some other code
@@ -85,12 +85,12 @@ class LongTasks
   end
   handle_asynchronously :call_a_class_method, :run_at => Proc.new { when_to_run }
 
-  attr_reader :how_important
+  attr_reader :which_queue
 
   def call_an_instance_method
     # Some other code
   end
-  handle_asynchronously :call_an_instance_method, :priority => Proc.new {|i| i.how_important }
+  handle_asynchronously :call_an_instance_method, :queue => Proc.new {|i| i.which_queue }
 end
 </pre>
 
@@ -110,6 +110,27 @@ $ RAILS_ENV=production script/delayed_job stop
 Workers can be running on any computer, as long as they have access to the database and their clock is in sync. Keep in mind that each worker will check the database at least every 5 seconds.
 
 You can also invoke @rake jobs:work@ which will start working off jobs. You can cancel the rake task with @CTRL-C@.
+
+h2. Queues
+
+If there are certain types of jobs that you want to have processed first, or have more workers dedicated to, you can put jobs in a queue.
+
+<pre>
+Notifier.delay(:queue => 'mailers').signup(@user)
+</pre>
+
+You can then have workers process only jobs in specific queues.
+
+<pre>
+$ script/delayed_job -q mailers,expirations start
+$ QUEUE=mailers,expirations rake jobs:work
+</pre>
+
+If you specify queues when starting a worker, then it will only process jobs in those queues. To simply give those queues priority, but still process other queues, use "*":
+
+<pre>
+$ script/delayed_job -q mailers,* start
+</pre>
 
 h2. Custom Jobs
 
@@ -163,22 +184,6 @@ end
 
 h2. Gory Details
 
-The library evolves around a delayed_jobs table which looks as follows:
-
-<pre>
-create_table :delayed_jobs, :force => true do |table|
-  table.integer  :priority, :default => 0      # Allows some jobs to jump to the front of the queue
-  table.integer  :attempts, :default => 0      # Provides for retries, but still fail eventually.
-  table.text     :handler                      # YAML-encoded string of the object that will do work
-  table.text   :last_error                   # reason for last failure (See Note below)
-  table.datetime :run_at                       # When to run. Could be Time.zone.now for immediately, or sometime in the future.
-  table.datetime :locked_at                    # Set when a client is working on this object
-  table.datetime :failed_at                    # Set when all retries have failed (actually, by default, the record is deleted instead)
-  table.string   :locked_by                    # Who is working on this object (if locked)
-  table.timestamps
-end
-</pre>
-
 On failure, the job is scheduled again in 5 seconds + N ** 4, where N is the number of retries.
 
 The default Worker.max_attempts is 25. After this, the job either deleted (default), or left in the database with "failed_at" set.
@@ -189,8 +194,6 @@ make sure your job doesn't exceed this time. You should set this to the longest 
 
 By default, it will delete failed jobs (and it always deletes successful jobs). If you want to keep failed jobs, set
 Delayed::Worker.destroy_failed_jobs = false. The failed jobs will be marked with non-null failed_at.
-
-By default all jobs are scheduled with priority = 0, which is top priority. You can change this by setting Delayed::Worker.default_priority to something else. Lower numbers have higher priority.
 
 Here is an example of changing job parameters in Rails:
 

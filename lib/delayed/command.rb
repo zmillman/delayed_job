@@ -26,11 +26,8 @@ module Delayed
         opts.on('-e', '--environment=NAME', 'Specifies the environment to run this delayed jobs under (test/development/production).') do |e|
           STDERR.puts "The -e/--environment option has been deprecated and has no effect. Use RAILS_ENV and see http://github.com/collectiveidea/delayed_job/issues/#issue/7"
         end
-        opts.on('--min-priority N', 'Minimum priority of jobs to run.') do |n|
-          @options[:min_priority] = n
-        end
-        opts.on('--max-priority N', 'Maximum priority of jobs to run.') do |n|
-          @options[:max_priority] = n
+        opts.on('-q', '--queue=NAMES', 'Comma separated list of queue names') do |n|
+          @options[:queues] = n.split(',')
         end
         opts.on('-n', '--number_of_workers=workers', "Number of unique workers to spawn") do |worker_count|
           @worker_count = worker_count.to_i rescue 1

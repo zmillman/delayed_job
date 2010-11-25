@@ -14,7 +14,17 @@ module Delayed
         scope :ready_to_run, lambda {|worker_name, max_run_time|
           where(['(run_at <= ? AND (locked_at IS NULL OR locked_at < ?) OR locked_by = ?) AND failed_at IS NULL', db_time_now, db_time_now - max_run_time, worker_name])
         }
-        scope :by_priority, order('priority ASC, run_at ASC')
+        scope :in_queues, lambda {|queues|
+          scope = self
+          if queues.present?
+            inclusive = queues.delete('*')
+            scope = scope.where(:queue => queues) unless inclusive
+            # FIXME: SQL injection vulnerability. Figure out how to escape.
+            scope = scope.order(queues.map {|q| "queue = '#{q}' DESC"}.join(', ')) if inclusive || queues.size > 1
+          end
+
+          scope.order('run_at ASC')
+        }
 
         def self.before_fork
           ::ActiveRecord::Base.clear_all_connections!
@@ -30,13 +40,10 @@ module Delayed
         end
 
         # Find a few candidate jobs to run (in case some immediately get locked by others).
-        def self.find_available(worker_name, limit = 5, max_run_time = Worker.max_run_time)
-          scope = self.ready_to_run(worker_name, max_run_time)
-          scope = scope.scoped(:conditions => ['priority >= ?', Worker.min_priority]) if Worker.min_priority
-          scope = scope.scoped(:conditions => ['priority <= ?', Worker.max_priority]) if Worker.max_priority
-
-          ::ActiveRecord::Base.silence do
-            scope.by_priority.all(:limit => limit)
+        def self.reserve(worker, max_run_time = Worker.max_run_time)
+          scope = self.ready_to_run(worker.name, max_run_time).in_queues(worker.queues)
+          scope.all(:limit => 5).detect do |job|
+            job.lock_exclusively!(max_run_time, worker.name)
           end
         end
 

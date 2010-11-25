@@ -1,6 +1,13 @@
 require 'spec_helper'
 
 describe Delayed::Worker do
+
+  describe "initialize" do
+    it "should set the queues" do
+      Delayed::Worker.new(:queues => ['a']).queues.should == ['a']
+    end
+  end
+
   describe "backend=" do
     before do
       @clazz = Class.new
