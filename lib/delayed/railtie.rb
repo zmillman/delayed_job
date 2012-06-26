@@ -7,6 +7,10 @@ module Delayed
       ActiveSupport.on_load(:action_mailer) do
         ActionMailer::Base.send(:extend, Delayed::DelayMail)
       end
+
+      ActiveSupport.on_load(:active_record) do
+        require 'delayed/yaml_ext'
+      end
     end
 
     rake_tasks do
