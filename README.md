@@ -36,7 +36,7 @@ delayed_job 3.0.0 only supports Rails 3.0+. See the [2.0
 branch](https://github.com/collectiveidea/delayed_job/tree/v2.0) for Rails 2.
 
 delayed_job supports multiple backends for storing the job queue. [See the wiki
-for other backends](http://wiki.github.com/collectiveidea/delayed_job/backends).
+for other backends](https://github.com/collectiveidea/delayed_job/wiki/Backends).
 
 If you plan to use delayed_job with Active Record, add `delayed_job_active_record` to your `Gemfile`.
 
@@ -57,6 +57,10 @@ running the following command:
 
     rails generate delayed_job:active_record
     rake db:migrate
+
+Rails 4
+=======
+If you are using the protected_attributes gem, it must appear before delayed_job in your gemfile.
 
 Upgrading from 2.x to 3.0.0 on Active Record
 ============================================
@@ -141,6 +145,9 @@ Notifier.signup(@user).deliver
 
 # with delayed_job
 Notifier.delay.signup(@user)
+
+# with delayed_job running at a specific time
+Notifier.delay(run_at: 5.minutes.from_now).signup(@user)
 ```
 
 Remove the `.deliver` method to make it work. It's not ideal, but it's the best
@@ -183,7 +190,7 @@ You can then do the following:
     RAILS_ENV=production script/delayed_job --queue=tracking start
     RAILS_ENV=production script/delayed_job --queues=mailers,tasks start
 
-    # Runs all available jobs and the exits
+    # Runs all available jobs and then exits
     RAILS_ENV=production script/delayed_job start --exit-on-complete
     # or to run in the foreground
     RAILS_ENV=production script/delayed_job run --exit-on-complete
@@ -203,7 +210,7 @@ Work off queues by setting the `QUEUE` or `QUEUES` environment variable.
 
     QUEUE=tracking rake jobs:work
     QUEUES=mailers,tasks rake jobs:work
-    
+
 Restarting delayed_job
 ======================
 
@@ -214,7 +221,7 @@ The following syntax will restart delayed jobs:
 To restart multiple delayed_job workers:
 
     RAILS_ENV=production script/delayed_job -n2 restart
-    
+
 **Rails 4:** *replace script/delayed_job with bin/delayed_job*
 
 
@@ -238,7 +245,7 @@ class NewsletterJob < Struct.new(:text, :emails)
   def perform
     emails.each { |e| NewsletterMailer.deliver_text_to_email(text, e) }
   end
-  
+
   def max_attempts
     return 3
   end
@@ -276,7 +283,7 @@ class ParanoidNewsletterJob < NewsletterJob
     Airbrake.notify(exception)
   end
 
-  def failure
+  def failure(job)
     page_sysadmin_in_the_middle_of_the_night
   end
 end
